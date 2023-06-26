@@ -267,7 +267,6 @@ def summarize(memos_dir_path, keys_file_path, extra, overwrite):
   for i, (dir_path, meta) in enumerate(metas.items()):
     logging.info("")
     process_single(dir_path, meta, extra=extra, overwrite=overwrite)
-  markdown(memos_dir_path)
 
 
 @logstack
