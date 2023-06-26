@@ -10,7 +10,7 @@ import yaml
 import git
 
 
-from memos.transcribe import transcribe
+from memos.transcribe import transcribe_file
 import memos.gpt as gpt
 
 from memos.logutils import logstack, logindent
