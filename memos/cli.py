@@ -278,6 +278,7 @@ def markdown(memos_dir_path):
     meta["datetime"] = datetime.datetime.fromisoformat(meta["datetime"])
   metas = metas.values()
   metas = [meta for meta in metas if not meta.get("error")]
+  metas = [meta for meta in metas if meta.get("title")]
 
   for meta in metas:
     dir_path = meta["dir"]
