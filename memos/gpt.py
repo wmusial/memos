@@ -220,7 +220,7 @@ def stream_single_completion(
       ret = completion["choices"][0]["message"]["context"]
     else:
       ret = completion["choices"][0]["message"]["function_call"]
-      if isinstance(x["arguments"], str):
+      if isinstance(ret["arguments"], str):
         ret["arguments"] = json.loads(ret["arguments"])
   return ret
 
