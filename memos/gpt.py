@@ -358,6 +358,8 @@ SUMMARY {sid+1}
 
 @logstack
 def summarize(text, model="gpt-3.5-turbo-16k", temperature=0.7):
+  if not text.strip():
+    return '', ''
   emb = tiktoken.encoding_for_model(model)
   max_tokens = MODEL_MAX_TOKENS[model]
   avail_tokens = max_tokens - len(emb.encode(PROMPT_SUMMARY)) - 100
@@ -420,7 +422,7 @@ def extract_keywords(text, model="gpt-3.5-turbo-0613", temperature=0.7, n=10, mi
       do_print=True,
       sequence_id=i,
       functions=FUNCTIONS_KEYWORDS,
-    )["arguments"]["keywords"]
+    )["arguments"].get("keywords", [])
     keywords = [slugify.slugify(keyword) for keyword in keywords]
     all_keywords += keywords
     for i, keyword in enumerate(keywords):
