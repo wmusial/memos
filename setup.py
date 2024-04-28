@@ -10,15 +10,16 @@ setup(
   packages=find_packages(exclude=["tests*"]),
   install_requires=[
     "cache-decorator",
-    "fuzzysearch",
+    #"fuzzysearch",
     "GitPython",
-    "langchain",
+    #"langchain",
     "numpy", # missing dependency from cache-decorator
     "openai",
     "pydub",
     "pyyaml",
     "python-slugify",
     "tiktoken",
+    "deepgram-sdk",
   ],
   entry_points={
     "console_scripts": ["memos=memos.cli:main"],

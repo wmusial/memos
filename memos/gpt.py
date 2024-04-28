@@ -5,11 +5,9 @@ import json
 import logging
 import slugify
 import requests
-import fuzzysearch
 import yaml
 from memos.logutils import logstack
 from cache_decorator import Cache
-from langchain.text_splitter import TokenTextSplitter
 
 CHAT_MODELS = [
   "gpt-3.5-turbo",
@@ -26,6 +24,7 @@ MODEL_MAX_TOKENS = {
   "gpt-3.5-turbo-16k": 16384,
   "gpt-4": 8192,
   "gpt-4-32k": 32768,
+  "gpt-4-turbo-2024-04-09": 128000,
 }
 """
 * fix punctuation, insert missing punctuation, remove excessive punctuation.
@@ -225,93 +224,6 @@ def stream_single_completion(
   return ret
 
 
-def merge_overlapping_chunks(chunks, max_overlap_len=150):
-  # for i, chunk in enumerate(chunks):
-  #   print(f"---------- CHUNK {i} ----------")
-  #   print(chunk)
-  #   print(f"---------- END OF CHUNK {i} ----------")
-  result = chunks[0]
-  for i in range(len(chunks) - 1):
-    chunk_suffix = chunks[i][-max_overlap_len:]
-    x = []
-    frac_denom = 6
-    while not x and frac_denom > 3:
-      logging.info(f"matching chunk {i} with fraction denominator {frac_denom}")
-      x = fuzzysearch.find_near_matches(
-        chunk_suffix,
-        chunks[i + 1],
-        max_l_dist=int(max_overlap_len / frac_denom),
-      )
-      frac_denom -= 1
-    if not x:
-      print(f"CHUNK {i}+1")
-      print(chunks[i + 1])
-      print("")
-      print(f"CHUNK {i}")
-      print(chunks[i])
-      print("")
-      print(f"CHUNK SUFFIX (end of {i})")
-      print(chunk_suffix)
-    assert len(x) == 1, x
-    result += chunks[i + 1][x[0].end :]
-  # print("----------- FINAL RESULT ---------")
-  # print(result)
-  # print("----------- END OF FINAL RESULT ---------")
-  return result
-
-
-def split_text_lines_by_max_tokens(text, model, chunk_size, chunk_overlap):
-  splitter = TokenTextSplitter(
-    model_name=model, chunk_size=int(chunk_size), chunk_overlap=int(chunk_overlap)
-  )
-  return splitter.split_text(text)
-
-
-@logstack
-def cleanup_monologue(text, model="gpt-3.5-turbo", temperature=0.7):
-  emb = tiktoken.encoding_for_model(model)
-  max_tokens = MODEL_MAX_TOKENS[model]
-  avail_tokens = max_tokens - len(emb.encode(PROMPT_CLEANUP_MONOLOGUE)) - 100
-  # the remaining tokens need to be able to encode chunk twice
-  avail_tokens /= 2
-  avail_tokens /= 2
-  # text = re.sub("-\+", "-", text)
-  chunks = split_text_lines_by_max_tokens(text, model, avail_tokens, avail_tokens / 4)
-  logging.info(f"{len(chunks)} chunks")
-  cleanups = []
-  iters = 10
-  for i, chunk in enumerate(chunks):
-    cleanup = None
-    for it in range(iters):
-      logging.info(f"chunk {i+1}/{len(chunks)}, try {it+1}/{iters}")
-      x = stream_single_completion(
-        PROMPT_CLEANUP_MONOLOGUE.format(text=chunk), model, temperature, it
-      )
-      n = 1000
-      print("-----")
-      print(chunk[-n:])
-      print("-----")
-      print(x[-n:])
-      print("-----")
-      standardize = lambda x: x.replace(" ", "").replace("\n", "")
-      len_ratio = 1.0 * len(standardize(x)) / len(standardize(chunk))
-      logging.info(
-        f"chunk {i+1}/{len(chunks)}, try {it+1}/{iters}, length ratio {len_ratio}"
-      )
-      if abs(len_ratio - 1) < 0.1:
-        cleanup = x
-        break
-    assert cleanup is not None
-    cleanups += [cleanup]
-    if len(cleanups) > 1:
-      cleanups = [merge_overlapping_chunks(cleanups)]
-  if len(chunks) > 1:
-    text_cleanup = merge_overlapping_chunks(cleanups)
-  else:
-    text_cleanup = cleanups[0]
-  return text_cleanup
-
-
 def merge_summaries(summaries, model="gpt-3.5-turbo-16k", temperature=0.7):
   if len(summaries) > 1:
     prompt = """
@@ -357,22 +269,18 @@ SUMMARY {sid+1}
 
 
 @logstack
-def summarize(text, model="gpt-3.5-turbo-16k", temperature=0.7):
+def summarize(text, model="gpt-4-turbo-2024-04-09", temperature=0.7):
   if not text.strip():
     return '', ''
   emb = tiktoken.encoding_for_model(model)
   max_tokens = MODEL_MAX_TOKENS[model]
-  avail_tokens = max_tokens - len(emb.encode(PROMPT_SUMMARY)) - 100
-  avail_tokens /= 2 + 0.5
-
-  chunks = split_text_lines_by_max_tokens(
-    text, model, chunk_size=avail_tokens, chunk_overlap=avail_tokens / 2
-  )
-  logging.info(f"{len(chunks)} chunks")
-  short_summaries = [
-    get_single_completion(PROMPT_SUMMARY.format(text=chunk), model, temperature)
-    for chunk in chunks
-  ]
+  prompt = PROMPT_SUMMARY.format(text=text)
+  prompt_len = len(emb.encode(prompt))
+  logging.info(f"prompt tokens: {prompt_len}")
+  assert prompt_len < max_tokens
+  short_summary = get_single_completion(prompt, model, temperature)
+  print(short_summary)
+  stop()
   long_summaries = [
     get_single_completion(
       [
