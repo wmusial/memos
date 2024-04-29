@@ -1,5 +1,6 @@
 import collections
-import openai
+from openai import OpenAI
+
 import tiktoken
 import json
 import logging
@@ -16,6 +17,7 @@ CHAT_MODELS = [
   "gpt-4-32k",
   "gpt-3.5-turbo-0613",
   "gpt-4-0613",
+  "gpt-4-turbo-2024-04-09",
 ]
 FUNCTION_MODELS = ["gpt-4-0613", "gpt-3.5-turbo-0613"]
 
@@ -145,37 +147,31 @@ FUNCTIONS_KEYWORDS = [
 def load_keys(keys_file_path):
   with open(keys_file_path) as f:
     keys = yaml.safe_load(f)
-  openai.api_key = keys["secret"]
-  openai.organization = keys["organization"]
+  return keys["secret"], keys["organization"]
 
 
 @Cache()
-def get_single_completion(prompt, model, temperature, sequence_id=0):
+def get_single_completion(secret, organization, prompt, model, temperature, sequence_id=0):
+  client = OpenAI(api_key=secret, organization=organization)
   if model in CHAT_MODELS:
     if isinstance(prompt, list):
-      completion = openai.ChatCompletion.create(
-        model=model,
-        messages=prompt,
-        temperature=temperature,
-      )
+      completion = client.chat.completions.create(model=model,
+      messages=prompt,
+      temperature=temperature)
     else:
-      completion = openai.ChatCompletion.create(
-        model=model,
-        messages=[
-          {
-            "role": "user",
-            "content": prompt,
-          }
-        ],
-        temperature=temperature,
-      )
-    ret = completion["choices"][0]["message"]["content"]
+      completion = client.chat.completions.create(model=model,
+      messages=[
+        {
+          "role": "user",
+          "content": prompt,
+        }
+      ],
+      temperature=temperature)
+    ret = completion.choices[0].message.content
   else:
-    completion = openai.Completion.create(
-      model=model,
-      prompt=prompt,
-    )
-    ret = completion["choices"][0]["text"]
+    completion = client.completions.create(model=model,
+    prompt=prompt)
+    ret = completion.choices[0].text
   return ret
 
 
@@ -202,12 +198,12 @@ def stream_single_completion(
     params["functions"] = functions
     # params['call'] = "auto"
 
-    completion = openai.ChatCompletion.create(**params)
+    completion = client.chat.completions.create(**params)
   if do_stream:
     ret = ""
     try:
       for chunk in completion:
-        delta = chunk["choices"][0]["delta"]
+        delta = chunk.choices[0].delta
         if "content" in delta:
           if do_print:
             print(delta["content"], end="", flush=True)
@@ -216,9 +212,9 @@ def stream_single_completion(
       pass
   else:
     if functions is None:
-      ret = completion["choices"][0]["message"]["context"]
+      ret = completion.choices[0].message.context
     else:
-      ret = completion["choices"][0]["message"]["function_call"]
+      ret = completion.choices[0].message.function_call
       if isinstance(ret["arguments"], str):
         ret["arguments"] = json.loads(ret["arguments"])
   return ret
@@ -255,7 +251,7 @@ SUMMARY {sid+1}
 
 """
       prompt += summary
-    summary = get_single_completion(prompt, model, temperature)
+    summary = get_single_completion(secret, organization, prompt, model, temperature)
     for i, s in enumerate(summaries):
       print("")
       print(i)
@@ -269,7 +265,8 @@ SUMMARY {sid+1}
 
 
 @logstack
-def summarize(text, model="gpt-4-turbo-2024-04-09", temperature=0.7):
+def summarize(keys_file_path, text, model="gpt-4-turbo-2024-04-09", temperature=0.7):
+  secret, organization = load_keys(keys_file_path)
   if not text.strip():
     return '', ''
   emb = tiktoken.encoding_for_model(model)
@@ -278,42 +275,41 @@ def summarize(text, model="gpt-4-turbo-2024-04-09", temperature=0.7):
   prompt_len = len(emb.encode(prompt))
   logging.info(f"prompt tokens: {prompt_len}")
   assert prompt_len < max_tokens
-  short_summary = get_single_completion(prompt, model, temperature)
-  print(short_summary)
-  stop()
-  long_summaries = [
-    get_single_completion(
-      [
-        {
-          "role": "user",
-          "content": PROMPT_SUMMARY.format(text=chunk, summary=summary),
-        },
-        {"role": "assistant", "content": summary},
-        {
-          "role": "user",
-          "content": "Great. Do it again, give more details from the original text.",
-        },
-      ],
-      model,
-      temperature,
-    )
-    for chunk, summary in zip(chunks, short_summaries)
-  ]
-  short_summary = merge_summaries(short_summaries)
-  long_summary = merge_summaries(long_summaries)
-  return short_summary, long_summary
+  short_summary = get_single_completion(secret, organization, prompt, model, temperature)
+  # long_summaries = [
+  #   get_single_completion(secret, organization,
+  #     [
+  #       {
+  #         "role": "user",
+  #         "content": PROMPT_SUMMARY.format(text=chunk, summary=summary),
+  #       },
+  #       {"role": "assistant", "content": summary},
+  #       {
+  #         "role": "user",
+  #         "content": "Great. Do it again, give more details from the original text.",
+  #       },
+  #     ],
+  #     model,
+  #     temperature,
+  #   )
+  #   for chunk, summary in zip(chunks, short_summaries)
+  # ]
+  # short_summary = merge_summaries(short_summaries)
+  # long_summary = merge_summaries(long_summaries)
+  return short_summary #, long_summary
 
 
 @logstack
 def short_summarize(text, model="gpt-3.5-turbo-0613", temperature=0.7):
   prompt = PROMPT_SHORTSUMMARY.format(text=text)
-  return get_single_completion(prompt, model, temperature)
+  return get_single_completion(secret, organization, prompt, model, temperature)
 
 
 @logstack
-def make_title(text, model="gpt-4", temperature=0.7):
+def make_title(keys_file_path, text, model="gpt-4", temperature=0.7):
+  secret, organization = load_keys(keys_file_path)
   prompt = PROMPT_TITLE.format(text=text)
-  return get_single_completion(prompt + text, model, temperature)
+  return get_single_completion(secret, organization, prompt + text, model, temperature)
 
 
 @logstack

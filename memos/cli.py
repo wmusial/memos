@@ -205,81 +205,36 @@ def transcribe(
 
 
 @logstack
-def summarize_single(dir_path, meta, overwrite=False, extra=False):
+def summarize_single(keys_file_path, dir_path, meta, overwrite=False, extra=False):
   logging.info(f"working on {dir_path}...")
   with open(os.path.join(dir_path, MEMO_ORIG_FILENAME)) as f:
     text_raw = "".join(f.readlines())
 
   summary_medium_path = os.path.join(dir_path, MEMO_SUMMARY_MEDIUM_FILENAME)
-  summary_long_path = os.path.join(dir_path, MEMO_SUMMARY_LONG_FILENAME)
   if not os.path.isfile(summary_medium_path) or overwrite:
-    summary_medium, summary_long = gpt.summarize(text_raw)
+    summary_medium = gpt.summarize(keys_file_path, text_raw)
     with open(summary_medium_path, "w") as f:
       f.writelines(summary_medium)
-    with open(summary_long_path, "w") as f:
-      f.writelines(summary_long)
   else:
     with open(summary_medium_path) as f:
       summary_medium = "".join(f.readlines())
-    with open(summary_long_path) as f:
-      summary_long = "".join(f.readlines())
-
-  summary_short_path = os.path.join(dir_path, MEMO_SUMMARY_SHORT_FILENAME)
-  if not os.path.isfile(summary_short_path) or overwrite:
-    if len(summary_medium) > 500:
-      summary_short = gpt.short_summarize(summary_medium)
-    else:
-      summary_short = summary_medium
-    with open(summary_short_path, "w") as f:
-      f.writelines(summary_short)
-  else:
-    with open(summary_short_path) as f:
-      summary_short = "".join(f.readlines())
 
   if "title" not in meta:
-    meta["title"] = gpt.make_title(summary_long)
+    meta["title"] = gpt.make_title(keys_file_path, summary_medium)
     logging.info(f'title: "{meta["title"]}"')
     write_meta(dir_path, **meta)
-
-  if "keywords" not in meta or overwrite:
-    meta["keywords"] = gpt.extract_keywords(summary_long)
-    write_meta(dir_path, **meta)
-
-  if not extra:
-    return
-
-  return
-
-  # print("----------")
-  # print(text_raw)
-  # print("----------")
-  # print(text_cleanup)
-  # print("----------")
-
-  # text = gpt.fix_transcription(text_raw)
-  # if text is None:
-  #   return
-  # with open(os.path.join(dir_path, MEMO_FIXUP_FILENAME), 'w') as f:
-  #   f.writelines(text)
-  write_meta(dir_path, **meta)
-  text_grammar = gpt.fix_grammar(text_cleanup)
-  with open(os.path.join(dir_path, MEMO_GRAMMAR_FILENAME), "w") as f:
-    f.writelines(text_grammar)
-  meta["grammar"] = True
-  write_meta(dir_path, **meta)
 
 
 @logstack
 def summarize(out_dir_path, openai_keys_file_path, overwrite):
   sub_dir_paths = [x for x in os.listdir(out_dir_path) if os.path.isdir(os.path.join(out_dir_path, x)) and x != MEMOS_DIR]
   for sub_dir_path in sub_dir_paths:
-    markdown(os.path.join(out_dir_path, sub_dir_path))
+    summarize(os.path.join(out_dir_path, sub_dir_path), openai_keys_file_path, overwrite)
   logging.info(f"summarize, dir: {out_dir_path}")
-  gpt.load_keys(openai_keys_file_path)
   metas = read_all_meta(os.path.join(out_dir_path, MEMOS_DIR))
   for i, (dir_path, meta) in enumerate(metas.items()):
     logging.info("")
-    summarize_single(dir_path, meta, overwrite=overwrite)
+    summarize_single(openai_keys_file_path, dir_path, meta, overwrite=overwrite)
 
 
 @logstack
@@ -305,17 +260,27 @@ def markdown(out_dir_path):
   for meta in metas:
     dir_path = meta["dir"]
     memo_date = meta["datetime"].date()
+    # this is the summary done by deepgram
     summary_path = os.path.join(dir_path, MEMO_SUMMARY_FILENAME)
+    # and this is the gpt one
+    summary_medium_path = os.path.join(dir_path, MEMO_SUMMARY_MEDIUM_FILENAME)
 
-    page_md = f"# {meta['datetime']}\n\n\n"
+    page_md = f"# {meta['datetime']}{'' if 'title' not in meta else ' - ' + meta['title']}\n\n\n"
     page_md += f"duration: {meta['duration']}\n\n"
     if "keywords" in meta:
       meta["keywords"] = " ".join(f"`{keyword}`" for keyword in meta["keywords"])
       page_md += meta["keywords"]
       page_md += "\n\n"
     blurb = None
-    if os.path.isfile(summary_path):
-      page_md += "## summary\n\n"
+    if os.path.isfile(summary_medium_path):
+      page_md += "## summary (gpt)\n\n"
+      with open(summary_medium_path) as f:
+        summary = "\n\n".join(f.readlines())
+        meta["summary"] = summary
+        page_md += summary
+      page_md += "\n\n"
+    elif os.path.isfile(summary_path):
+      page_md += "## summary (deepgram)\n\n"
       with open(summary_path) as f:
         summary = "\n\n".join(f.readlines())
         meta["summary"] = summary
@@ -329,7 +294,8 @@ def markdown(out_dir_path):
 
   main_md = "# memos\n\n\n"
   for meta in reversed(sorted(metas, key=lambda meta: meta["datetime"])):
-    main_md += f"## {meta['datetime']}\n\n"
+    #main_md += f"## {meta['datetime']}\n\n"
+    main_md += f"## {meta['datetime']}{'' if 'title' not in meta else ' - ' + meta['title']}\n\n\n"
     main_md += f"duration: {meta['duration']}\n\n"
     #main_md += f"### {meta['title']}\n\n"
     if "keywords" in meta:

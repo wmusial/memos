@@ -4,7 +4,9 @@ import logging
 import datetime
 
 import pydub
-import openai
+from openai import OpenAI
+
+client = OpenAI()
 
 from memos.logutils import logstack
 
@@ -38,10 +40,8 @@ def transcribe_file(file_path, max_file_size=26432142):
       target_file_size / max_file_size,
     )
     with open(target_file_path, "rb") as f:
-      text = openai.Audio.transcribe(
-        model="whisper-1",
-        file=f,
-        format="json",
-        prompt="Hello, this recording is a transcript.",
-      )["text"]
+      text = client.audio.transcribe(model="whisper-1",
+      file=f,
+      format="json",
+      prompt="Hello, this recording is a transcript.")["text"]
   return text
